@@ -1682,7 +1682,7 @@ void DASolver::calcForceProfileInternal(
     scalar length, axialDist;
 
     // get the pressure in the memory
-    const volScalarField &p = mesh.thisDb().lookupObject<volScalarField>("p");
+    const volScalarField& p = mesh.thisDb().lookupObject<volScalarField>("p");
 
     // find the patch ID of the blade surface
     label bladePatchI = mesh.boundaryMesh().findPatchID(bladePatchName);
@@ -1739,7 +1739,10 @@ void DASolver::calcForceProfileInternal(
 
     // generating empty lists
     scalarList axialForce(sections);
-    forAll(axialForce, Index) { axialForce[Index] = 0; }
+    forAll(axialForce, Index)
+    {
+        axialForce[Index] = 0;
+    }
     scalarList tangtForce = axialForce;
     scalarList radialDist = axialForce;
     scalarList intForce(2);
@@ -1768,8 +1771,8 @@ void DASolver::calcForceProfileInternal(
         }
 
         // pressure direction is opposite of the surface normal
-        axialForce[quot] = axialForce[quot] - (mesh.Sf().boundaryField()[bladePatchI][faceI] & axis) * p.boundaryField()[bladePatchI][faceI];
-        tangtForce[quot] = tangtForce[quot] - (mesh.Sf().boundaryField()[bladePatchI][faceI] & meshTanDir[faceI]) * p.boundaryField()[bladePatchI][faceI];
+        axialForce[quot] = axialForce[quot] + (mesh.Sf().boundaryField()[bladePatchI][faceI] & axis) * p.boundaryField()[bladePatchI][faceI];
+        tangtForce[quot] = tangtForce[quot] + (mesh.Sf().boundaryField()[bladePatchI][faceI] & meshTanDir[faceI]) * p.boundaryField()[bladePatchI][faceI];
 
         vector fT(mesh.Sf().boundaryField()[bladePatchI][faceI] & devRhoReffb[bladePatchI][faceI]);
         axialForce[quot] = axialForce[quot] + (fT & axis);
@@ -1797,15 +1800,10 @@ void DASolver::calcForceProfileInternal(
     rDist = radialDist;
     integralForce = intForce;
 
-    Info << " " << endl;
-    Info << " " << endl;
-    Info << " " << endl;
-    Info << " " << endl;
-    Info << "INTEGRAL FORCE = " << integralForce << endl;
-    Info << " " << endl;
-    Info << " " << endl;
-    Info << " " << endl;
-    Info << " " << endl;
+    if (daOptionPtr_->getOption<label>("debug"))
+    {
+        Info << "integral force " << integralForce << endl;
+    }
 
 #endif
 }
@@ -1827,7 +1825,7 @@ void DASolver::calcdForceProfiledXvWAD(
 #ifdef CODI_AD_REVERSE
 
     Info << "Calculating [dForceProfile/dInputs]^T*Psi using reverse-mode AD. PropName: "
-         << propName << endl;
+         << propName << " inputMode: " << inputMode << " ouputMode: " << outputMode << endl;
 
     VecZeroEntries(dForcedXvW);
 
@@ -1882,21 +1880,21 @@ void DASolver::calcdForceProfiledXvWAD(
     // Step 4
     if (outputMode == "aForce")
     {
-        for(label i = 0; i<nPoints; i++)
+        for (label i = 0; i < nPoints; i++)
         {
             this->globalADTape_.registerOutput(aForce[i]);
         }
     }
     else if (outputMode == "tForce")
     {
-        for(label i = 0; i<nPoints; i++)
+        for (label i = 0; i < nPoints; i++)
         {
             this->globalADTape_.registerOutput(tForce[i]);
         }
     }
     else if (outputMode == "rDist")
     {
-        for(label i = 0; i<nPoints; i++)
+        for (label i = 0; i < nPoints; i++)
         {
             this->globalADTape_.registerOutput(rDist[i]);
         }
@@ -1911,7 +1909,7 @@ void DASolver::calcdForceProfiledXvWAD(
         FatalErrorIn("calcdFvSourcedInputsTPsiAD") << "outputMode not valid"
                                                    << abort(FatalError);
     }
-    
+
     // Step 5
     this->globalADTape_.setPassive();
 
@@ -1937,12 +1935,11 @@ void DASolver::calcdForceProfiledXvWAD(
         {
             rDist[i].setGradient(vecArrayPsi[i]);
         }
-    
     }
     else if (outputMode == "integralForce")
     {
-        integralForce[0].setGradient(vecArrayPsi[0]);    
-        integralForce[1].setGradient(vecArrayPsi[1]); 
+        integralForce[0].setGradient(vecArrayPsi[0]);
+        integralForce[1].setGradient(vecArrayPsi[1]);
     }
     VecRestoreArrayRead(psi, &vecArrayPsi);
 
@@ -1974,7 +1971,7 @@ void DASolver::calcdForceProfiledXvWAD(
     // Step 9
     this->globalADTape_.clearAdjoints();
     this->globalADTape_.reset();
-    
+
 #endif
 }
 
@@ -2800,11 +2797,7 @@ void DASolver::calcPrimalResidualStatistics(
         FatalErrorIn("") << "mode not valid" << abort(FatalError);
     }
 
-    label isPC = 0;
-    dictionary options;
-    options.set("isPC", isPC);
-    daResidualPtr_->calcResiduals(options);
-    daModelPtr_->calcResiduals(options);
+    this->calcResiduals();
 
     forAll(stateInfo_["volVectorStates"], idxI)
     {
@@ -3743,15 +3736,8 @@ void DASolver::calcdRdBCTPsiAD(
     }
     // ******* now set BC done******
     // compute residuals
-    daResidualPtr_->correctBoundaryConditions();
-    daResidualPtr_->updateIntermediateVariables();
-    daModelPtr_->correctBoundaryConditions();
-    daModelPtr_->updateIntermediateVariables();
-    label isPC = 0;
-    dictionary options;
-    options.set("isPC", isPC);
-    daResidualPtr_->calcResiduals(options);
-    daModelPtr_->calcResiduals(options);
+    this->updateStateBoundaryConditions();
+    this->calcResiduals();
 
     this->registerResidualOutput4AD();
     this->globalADTape_.setPassive();
@@ -4013,10 +3999,7 @@ void DASolver::calcdFdBCAD(
             }
         }
         // update all intermediate variables and boundary conditions
-        daResidualPtr_->correctBoundaryConditions();
-        daResidualPtr_->updateIntermediateVariables();
-        daModelPtr_->correctBoundaryConditions();
-        daModelPtr_->updateIntermediateVariables();
+        this->updateStateBoundaryConditions();
         // compute the objective function
         scalar fRef = daObjFunc->getObjFuncValue();
         // register f as the output
@@ -4331,15 +4314,8 @@ void DASolver::calcdRdAOATPsiAD(
         }
     }
     // compute residuals
-    daResidualPtr_->correctBoundaryConditions();
-    daResidualPtr_->updateIntermediateVariables();
-    daModelPtr_->correctBoundaryConditions();
-    daModelPtr_->updateIntermediateVariables();
-    label isPC = 0;
-    dictionary options;
-    options.set("isPC", isPC);
-    daResidualPtr_->calcResiduals(options);
-    daModelPtr_->calcResiduals(options);
+    this->updateStateBoundaryConditions();
+    this->calcResiduals();
 
     this->registerResidualOutput4AD();
     this->globalADTape_.setPassive();
@@ -4838,10 +4814,7 @@ void DASolver::calcdFdFieldAD(
         this->registerFieldVariableInput4AD(fieldName, fieldType);
         this->updateBoundaryConditions(fieldName, fieldType);
         // update all intermediate variables and boundary conditions
-        daResidualPtr_->correctBoundaryConditions();
-        daResidualPtr_->updateIntermediateVariables();
-        daModelPtr_->correctBoundaryConditions();
-        daModelPtr_->updateIntermediateVariables();
+        this->updateStateBoundaryConditions();
         // compute the objective function
         scalar fRef = daObjFunc->getObjFuncValue();
         // register f as the output
@@ -4977,10 +4950,7 @@ void DASolver::resetOFSeeds()
     this->setPrimalBoundaryConditions(0);
     daFieldPtr_->resetOFSeeds();
 
-    daResidualPtr_->correctBoundaryConditions();
-    daResidualPtr_->updateIntermediateVariables();
-    daModelPtr_->correctBoundaryConditions();
-    daModelPtr_->updateIntermediateVariables();
+    this->updateStateBoundaryConditions();
 }
 
 void DASolver::updateOFField(const Vec wVec)
@@ -5185,16 +5155,9 @@ void DASolver::initializeGlobalADTape4dRdWT()
     // register state variables as the inputs
     this->registerStateVariableInput4AD();
     // need to correct BC and update all intermediate variables
-    daResidualPtr_->correctBoundaryConditions();
-    daResidualPtr_->updateIntermediateVariables();
-    daModelPtr_->correctBoundaryConditions();
-    daModelPtr_->updateIntermediateVariables();
+    this->updateStateBoundaryConditions();
     // Now we can compute the residuals
-    label isPC = 0;
-    dictionary options;
-    options.set("isPC", isPC);
-    daResidualPtr_->calcResiduals(options);
-    daModelPtr_->calcResiduals(options);
+    this->calcResiduals();
     // Set the residual as the output
     this->registerResidualOutput4AD();
     // All done, set the tape to passive
@@ -5267,10 +5230,7 @@ void DASolver::calcdFdWAD(
         // register states as the input
         this->registerStateVariableInput4AD();
         // update all intermediate variables and boundary conditions
-        daResidualPtr_->correctBoundaryConditions();
-        daResidualPtr_->updateIntermediateVariables();
-        daModelPtr_->correctBoundaryConditions();
-        daModelPtr_->updateIntermediateVariables();
+        this->updateStateBoundaryConditions();
         // compute the objective function
         scalar fRef = daObjFunc->getObjFuncValue();
         // register f as the output
@@ -5398,10 +5358,7 @@ void DASolver::calcdFdXvAD(
         meshPtr_->movePoints(meshPoints);
         meshPtr_->moving(false);
         // update all intermediate variables and boundary conditions
-        daResidualPtr_->correctBoundaryConditions();
-        daResidualPtr_->updateIntermediateVariables();
-        daModelPtr_->correctBoundaryConditions();
-        daModelPtr_->updateIntermediateVariables();
+        this->updateStateBoundaryConditions();
         // compute the objective function
         scalar fRef = daObjFunc->getObjFuncValue();
         // register f as the output
@@ -5528,15 +5485,8 @@ void DASolver::calcdRdThermalTPsiAD(
     this->setThermal(thermalArray);
 
     // compute residuals
-    daResidualPtr_->correctBoundaryConditions();
-    daResidualPtr_->updateIntermediateVariables();
-    daModelPtr_->correctBoundaryConditions();
-    daModelPtr_->updateIntermediateVariables();
-    label isPC = 0;
-    dictionary options;
-    options.set("isPC", isPC);
-    daResidualPtr_->calcResiduals(options);
-    daModelPtr_->calcResiduals(options);
+    this->updateStateBoundaryConditions();
+    this->calcResiduals();
 
     // register outputs
     this->registerResidualOutput4AD();
@@ -5629,15 +5579,8 @@ void DASolver::calcdRdXvTPsiAD(
     meshPtr_->movePoints(meshPoints);
     meshPtr_->moving(false);
     // compute residuals
-    daResidualPtr_->correctBoundaryConditions();
-    daResidualPtr_->updateIntermediateVariables();
-    daModelPtr_->correctBoundaryConditions();
-    daModelPtr_->updateIntermediateVariables();
-    label isPC = 0;
-    dictionary options;
-    options.set("isPC", isPC);
-    daResidualPtr_->calcResiduals(options);
-    daModelPtr_->calcResiduals(options);
+    this->updateStateBoundaryConditions();
+    this->calcResiduals();
 
     this->registerResidualOutput4AD();
     this->globalADTape_.setPassive();
@@ -5706,10 +5649,7 @@ void DASolver::calcdForcedXvAD(
     meshPtr_->movePoints(meshPoints);
     meshPtr_->moving(false);
     // compute residuals
-    daResidualPtr_->correctBoundaryConditions();
-    daResidualPtr_->updateIntermediateVariables();
-    daModelPtr_->correctBoundaryConditions();
-    daModelPtr_->updateIntermediateVariables();
+    this->updateStateBoundaryConditions();
 
     // Allocate arrays
     label nPoints, nFaces;
@@ -5790,10 +5730,7 @@ void DASolver::calcdAcousticsdXvAD(
     meshPtr_->movePoints(meshPoints);
     meshPtr_->moving(false);
     // compute residuals
-    daResidualPtr_->correctBoundaryConditions();
-    daResidualPtr_->updateIntermediateVariables();
-    daModelPtr_->correctBoundaryConditions();
-    daModelPtr_->updateIntermediateVariables();
+    this->updateStateBoundaryConditions();
 
     // Allocate arrays
     label nPoints, nFaces;
@@ -5922,15 +5859,8 @@ void DASolver::calcdRdFieldTPsiAD(
     this->registerFieldVariableInput4AD(fieldName, fieldType);
     this->updateBoundaryConditions(fieldName, fieldType);
     // compute residuals
-    daResidualPtr_->correctBoundaryConditions();
-    daResidualPtr_->updateIntermediateVariables();
-    daModelPtr_->correctBoundaryConditions();
-    daModelPtr_->updateIntermediateVariables();
-    label isPC = 0;
-    dictionary options;
-    options.set("isPC", isPC);
-    daResidualPtr_->calcResiduals(options);
-    daModelPtr_->calcResiduals(options);
+    this->updateStateBoundaryConditions();
+    this->calcResiduals();
 
     this->registerResidualOutput4AD();
     this->globalADTape_.setPassive();
@@ -6053,10 +5983,7 @@ void DASolver::calcdFdACTAD(
                 fvSource.updateFvSource();
 
                 // update all intermediate variables and boundary conditions
-                daResidualPtr_->correctBoundaryConditions();
-                daResidualPtr_->updateIntermediateVariables();
-                daModelPtr_->correctBoundaryConditions();
-                daModelPtr_->updateIntermediateVariables();
+                this->updateStateBoundaryConditions();
                 // compute the objective function
                 scalar fRef = daObjFunc->getObjFuncValue();
                 // register f as the output
@@ -6197,15 +6124,8 @@ void DASolver::calcdRdActTPsiAD(
             }
 
             // compute residuals
-            daResidualPtr_->correctBoundaryConditions();
-            daResidualPtr_->updateIntermediateVariables();
-            daModelPtr_->correctBoundaryConditions();
-            daModelPtr_->updateIntermediateVariables();
-            label isPC = 0;
-            dictionary options;
-            options.set("isPC", isPC);
-            daResidualPtr_->calcResiduals(options);
-            daModelPtr_->calcResiduals(options);
+            this->updateStateBoundaryConditions();
+            this->calcResiduals();
 
             this->registerResidualOutput4AD();
             this->globalADTape_.setPassive();
@@ -6286,10 +6206,7 @@ void DASolver::calcdForcedWAD(
     this->registerStateVariableInput4AD();
 
     // compute residuals
-    daResidualPtr_->correctBoundaryConditions();
-    daResidualPtr_->updateIntermediateVariables();
-    daModelPtr_->correctBoundaryConditions();
-    daModelPtr_->updateIntermediateVariables();
+    this->updateStateBoundaryConditions();
 
     // Allocate arrays
     label nPoints, nFaces;
@@ -6361,10 +6278,7 @@ void DASolver::calcdAcousticsdWAD(
     this->registerStateVariableInput4AD();
 
     // compute residuals
-    daResidualPtr_->correctBoundaryConditions();
-    daResidualPtr_->updateIntermediateVariables();
-    daModelPtr_->correctBoundaryConditions();
-    daModelPtr_->updateIntermediateVariables();
+    this->updateStateBoundaryConditions();
 
     // Allocate arrays
     label nPoints, nFaces;
@@ -6549,15 +6463,8 @@ void DASolver::calcdRdWTPsiAD(
     this->registerStateVariableInput4AD();
 
     // compute residuals
-    daResidualPtr_->correctBoundaryConditions();
-    daResidualPtr_->updateIntermediateVariables();
-    daModelPtr_->correctBoundaryConditions();
-    daModelPtr_->updateIntermediateVariables();
-    label isPC = 0;
-    dictionary options;
-    options.set("isPC", isPC);
-    daResidualPtr_->calcResiduals(options);
-    daModelPtr_->calcResiduals(options);
+    this->updateStateBoundaryConditions();
+    this->calcResiduals();
 
     this->registerResidualOutput4AD();
     this->globalADTape_.setPassive();
@@ -6624,15 +6531,8 @@ void DASolver::calcdRdWOldTPsiAD(
     this->registerStateVariableInput4AD(oldTimeLevel);
 
     // compute residuals
-    daResidualPtr_->correctBoundaryConditions();
-    daResidualPtr_->updateIntermediateVariables();
-    daModelPtr_->correctBoundaryConditions();
-    daModelPtr_->updateIntermediateVariables();
-    label isPC = 0;
-    dictionary options;
-    options.set("isPC", isPC);
-    daResidualPtr_->calcResiduals(options);
-    daModelPtr_->calcResiduals(options);
+    this->updateStateBoundaryConditions();
+    this->calcResiduals();
 
     this->registerResidualOutput4AD();
     this->globalADTape_.setPassive();
@@ -7830,15 +7730,8 @@ void DASolver::calcResidualVec(Vec resVec)
     */
 
     // compute residuals
-    daResidualPtr_->correctBoundaryConditions();
-    daResidualPtr_->updateIntermediateVariables();
-    daModelPtr_->correctBoundaryConditions();
-    daModelPtr_->updateIntermediateVariables();
-    label isPC = 0;
-    dictionary options;
-    options.set("isPC", isPC);
-    daResidualPtr_->calcResiduals(options);
-    daModelPtr_->calcResiduals(options);
+    this->updateStateBoundaryConditions();
+    this->calcResiduals();
 
     PetscScalar* vecArray;
     VecGetArray(resVec, &vecArray);
@@ -7942,6 +7835,44 @@ void DASolver::updateBoundaryConditions(
     {
         FatalErrorIn("") << fieldType << " not support. Options are: vector or scalar "
                          << abort(FatalError);
+    }
+}
+
+void DASolver::calcResiduals(label isPC)
+{
+    /*
+    Description:
+        Calculate the residuals and assign values to the residual OF variables in the DAResidual object, such as URes_, pRes_
+    
+    Inputs:
+        isPC: whether the residual calculate is for preconditioner, default false
+    */
+
+    dictionary options;
+    options.set("isPC", isPC);
+    daResidualPtr_->calcResiduals(options);
+    daModelPtr_->calcResiduals(options);
+}
+
+void DASolver::updateStateBoundaryConditions()
+{
+    /*
+    Description:
+        Update the boundary condition and intermediate variables for all state variables
+    */
+
+    label nBCCalls = 1;
+    if (daOptionPtr_->getOption<label>("hasIterativeBC"))
+    {
+        nBCCalls = daOptionPtr_->getOption<label>("maxCorrectBCCalls");
+    }
+
+    for (label i = 0; i < nBCCalls; i++)
+    {
+        daResidualPtr_->correctBoundaryConditions();
+        daResidualPtr_->updateIntermediateVariables();
+        daModelPtr_->correctBoundaryConditions();
+        daModelPtr_->updateIntermediateVariables();
     }
 }
 
